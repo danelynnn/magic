@@ -178,11 +178,16 @@ for s in range(count):
     with open(f'out/set{s}.json', "w+") as file:
         json.dump({"seed": seed, "cards": cards}, file)
     
-    pdf = FPDF(unit="in")
+    pdf = FPDF(unit="in", format='letter')
 
-    for i in range(0, len(cards), 9):
-        pdf.add_page()
-        for j in range(i, min(i+9, len(cards))):
-            pdf.image(load_image(cards[j]['src'], cards[j]['title']), **PAGE_POSITIONS[j % 9])
+    page1 = [0,2,4,6,8,10,12,14]
+
+    pdf.add_page()
+    for i in range(0,len(cards),2):
+        pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+    
+    pdf.add_page()
+    for i in range(1,len(cards),2):
+        pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
     
     pdf.output(f'out/set{s}.pdf')
