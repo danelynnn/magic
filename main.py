@@ -41,29 +41,54 @@ else:
     count = int(count)
 library = {"r": [], "u": [], "c": [], "land": []}
 
-def load_search(params=[f"s:{setName}"]):
+# from wizards.com
+# def load_search(params=[f"s:{setName}"]):
+#     result = []
+
+#     print(f"loading cards with params: {' '.join(params)}")
+
+#     nextPage = 1
+#     while nextPage > -1:
+#         search = requests.get('https://gatherer.wizards.com/search', {"searchTerm": ' '.join(params), "page": nextPage})
+#         print(f"fetching {search.url}")
+#         search_page = BeautifulSoup(search.content, "html.parser")
+
+#         cards = search_page.select('img.rounded-card.opacity-0')
+#         for card in cards:
+#             result.append({"title": card.attrs['title'], "src": card.attrs['src']})
+
+#         # pagination
+#         wrapper = str(search_page.find('form', attrs={'data-testid': 'cardFiltersWrapper'}))
+#         match = re.search(r'\d*-(\d*) of (\d*)', wrapper)
+
+#         last = int(match.group(1))
+#         total = int(match.group(2))
+
+#         if last < total:
+#             nextPage += 1
+#         else:
+#             nextPage = -1
+
+#     print(f"{len(result)} cards found")
+#     return result
+
+# from scryfall
+def load_search(params=[f"e:{setName}"]):
     result = []
 
     print(f"loading cards with params: {' '.join(params)}")
 
     nextPage = 1
     while nextPage > -1:
-        search = requests.get('https://gatherer.wizards.com/search', {"searchTerm": ' '.join(params), "page": nextPage})
+        search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
         print(f"fetching {search.url}")
-        search_page = BeautifulSoup(search.content, "html.parser")
+        search = search.json()
 
-        cards = search_page.select('img.rounded-card.opacity-0')
-        for card in cards:
-            result.append({"title": card.attrs['title'], "src": card.attrs['src']})
+        for card in search['data']:
+            if 'image_uris' in card:
+                result.append({"title": card['name'], "src": card['image_uris']['png']})
 
-        # pagination
-        wrapper = str(search_page.find('form', attrs={'data-testid': 'cardFiltersWrapper'}))
-        match = re.search(r'\d*-(\d*) of (\d*)', wrapper)
-
-        last = int(match.group(1))
-        total = int(match.group(2))
-
-        if last < total:
+        if search['has_more']:
             nextPage += 1
         else:
             nextPage = -1
@@ -71,22 +96,27 @@ def load_search(params=[f"s:{setName}"]):
     print(f"{len(result)} cards found")
     return result
 
-if os.path.exists(f'{setName}.json'):
-    with open(f'{setName}.json', 'r') as file:
+if not os.path.exists('out/'):
+    os.mkdir('out')
+
+if os.path.exists(f'out/{setName}.json'):
+    with open(f'out/{setName}.json', 'r') as file:
         library = json.load(file)
     print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
 else:
-    library['r'] = load_search([f's:{setName}', 'r>r'])
-    library['u'] = load_search([f's:{setName}', 'r:u'])
-    library['c'] = load_search([f's:{setName}', 'r:c'])
-    library['land'] = load_search([f's:{setName}', 't:land'])
+    library['r'] = load_search([f'e:{setName}', 'r>r'])
+    library['u'] = load_search([f'e:{setName}', 'r:u'])
+    library['c'] = load_search([f'e:{setName}', 'r:c'])
+    library['land'] = load_search([f'e:{setName}', 't:land'])
 
     print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
-    with open(f'{setName}.json', 'w+') as file:
+    with open(f'out/{setName}.json', 'w+') as file:
         json.dump(library, file)
 
 # picking sets
 for s in range(count):
+    if not os.path.exists('out/'):
+        os.mkdir('out')
     print("generating set", s)
 
     seed = time.time_ns() // 1_000_000
@@ -119,11 +149,8 @@ for s in range(count):
     tokens = tokens_page.select("img.card")
     token = tokens.pop(random.randint(0, len(tokens)-1))
     cards.append({"title": token.attrs['alt'], "src": token.attrs['src']})
-    
-    if os.path.exists(f'set{s}.json'):
-        os.remove(f'set{s}.json')
 
-    with open(f'set{s}.json', "w+") as file:
+    with open(f'out/set{s}.json', "w+") as file:
         json.dump({"seed": seed, "cards": cards}, file)
     
     pdf = FPDF(unit="in")
@@ -133,4 +160,4 @@ for s in range(count):
         for j in range(i, min(i+9, len(cards))):
             pdf.image(load_image(cards[j]['src'], cards[j]['title']), **PAGE_POSITIONS[j % 9])
     
-    pdf.output(f'set{s}.pdf')
+    pdf.output(f'out/set{s}.pdf')
