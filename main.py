@@ -74,10 +74,11 @@ library = {"r": [], "u": [], "c": [], "land": []}
 
 # from scryfall
 def load_search(params=[f"e:{setName}"]):
-    result = []
+    result = {}
 
     print(f"loading cards with params: {' '.join(params)}")
-
+    
+    params.append('unique:prints')
     nextPage = 1
     while nextPage > -1:
         search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
@@ -86,7 +87,31 @@ def load_search(params=[f"e:{setName}"]):
 
         for card in search['data']:
             if 'image_uris' in card:
-                result.append({"title": card['name'], "src": card['image_uris']['png']})
+                if "Baron" in card['name']:
+                    print(card)
+                if (card['name'] in result and int(card['collector_number']) < int(result[card['name']][1])):
+                    continue
+                result[card['name']] = (card['image_uris']['png'], card['collector_number'])
+
+        if search['has_more']:
+            nextPage += 1
+        else:
+            nextPage = -1
+    
+    params.append('is:full')
+    nextPage = 1
+    while nextPage > -1:
+        search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
+        print(f"fetching {search.url}")
+        search = search.json()
+
+        if "data" not in search:
+            break
+
+        for card in search['data']:
+            if 'image_uris' in card:
+                print('replacing', card['name'])
+                result[card['name']] = (card['image_uris']['png'], card['collector_number'])
 
         if search['has_more']:
             nextPage += 1
@@ -94,7 +119,7 @@ def load_search(params=[f"e:{setName}"]):
             nextPage = -1
 
     print(f"{len(result)} cards found")
-    return result
+    return [{"title": key, "src": value[0]} for key, value in result.items()]
 
 if not os.path.exists('out/'):
     os.mkdir('out')
