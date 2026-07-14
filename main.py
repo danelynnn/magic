@@ -14,7 +14,7 @@ def load_image(src, name):
         os.mkdir('img')
     with requests.get(src, stream=True, headers={'User-agent': 'Mozilla/5.0'}) as img:
         filename = f"img/{''.join(c for c in name if c.isalnum())}.webp"
-        if not os.path.exists(filename):
+        if not os.path.exists(filename) or name in ['Forest', 'Island', 'Mountain', 'Swamp', 'Plains']:
             with open(filename, 'wb+') as file:
                 for chunk in img.iter_content(chunk_size=16*1024):
                     file.write(chunk)
@@ -155,6 +155,7 @@ for s in range(count):
 
     # 1 land
     cards.append(library_copy['land'].pop(random.randint(0, len(library_copy['land'])-1)))
+    print(cards)
 
     # 10 commons
     for _ in range(10):
