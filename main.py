@@ -73,7 +73,7 @@ library = {"r": [], "u": [], "c": [], "land": []}
 #     return result
 
 # from scryfall
-def load_search(params=[f"e:{setName}"]):
+def load_search(params=[f"e:{setName}"], lands=False):
     result = []
 
     print(f"loading cards with params: {' '.join(params)}")
@@ -85,7 +85,7 @@ def load_search(params=[f"e:{setName}"]):
         search = search.json()
 
         for card in search['data']:
-            if 'image_uris' in card:
+            if 'image_uris' in card and (lands or 'Land' not in card['type_line']):
                 result.append({"title": card['name'], "src": card['image_uris']['png']})
 
         if search['has_more']:
@@ -107,7 +107,7 @@ else:
     library['r'] = load_search([f'e:{setName}', 'r>r'])
     library['u'] = load_search([f'e:{setName}', 'r:u'])
     library['c'] = load_search([f'e:{setName}', 'r:c'])
-    library['land'] = load_search([f'e:{setName}', 't:land'])
+    library['land'] = load_search([f'e:{setName}', 't:land'], True)
 
     print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
     with open(f'out/{setName}.json', 'w+') as file:
