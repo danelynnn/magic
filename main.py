@@ -85,13 +85,13 @@ def load_search(params=[f"e:{setName}"]):
         print(f"fetching {search.url}")
         search = search.json()
 
+        if "data" not in search:
+            break
         for card in search['data']:
             if 'image_uris' in card:
-                if "Baron" in card['name']:
-                    print(card)
-                if (card['name'] in result and int(card['collector_number']) < int(result[card['name']][1])):
+                if (card['name'] in result and int(re.findall(r'\d+', card['collector_number'])[0]) < result[card['name']][1]):
                     continue
-                result[card['name']] = (card['image_uris']['png'], card['collector_number'])
+                result[card['name']] = (card['image_uris']['png'], int(re.findall(r'\d+', card['collector_number'])[0]))
 
         if search['has_more']:
             nextPage += 1
@@ -129,7 +129,7 @@ if os.path.exists(f'out/{setName}.json'):
         library = json.load(file)
     print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
 else:
-    library['r'] = load_search([f'e:{setName}', 'r>r'])
+    library['r'] = load_search([f'e:{setName}', 'r>=r'])
     library['u'] = load_search([f'e:{setName}', 'r:u'])
     library['c'] = load_search([f'e:{setName}', 'r:c', '-t:basic'])
     library['land'] = load_search([f'e:{setName}', 't:land', 't:basic'])
@@ -137,6 +137,8 @@ else:
     print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
     with open(f'out/{setName}.json', 'w+') as file:
         json.dump(library, file)
+    
+pdf = FPDF(unit="in", format='letter')
 
 # picking sets
 for s in range(count):
@@ -177,17 +179,22 @@ for s in range(count):
 
     with open(f'out/set{s}.json', "w+") as file:
         json.dump({"seed": seed, "cards": cards}, file)
-    
-    pdf = FPDF(unit="in", format='letter')
 
-    page1 = [0,2,4,6,8,10,12,14]
+    # pdf = FPDF(unit="in", format='letter')
 
     pdf.add_page()
     for i in range(0,len(cards),2):
-        pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+        try:
+            pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+        except:
+            print(cards[i]['title'])
     
     pdf.add_page()
     for i in range(1,len(cards),2):
-        pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+        try:
+            pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+        except:
+            print(cards[i]['title'])
     
-    pdf.output(f'out/set{s}.pdf')
+    # pdf.output(f'out/set{s}.pdf')
+pdf.output('out/sets.pdf')
