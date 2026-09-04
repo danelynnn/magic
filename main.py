@@ -7,7 +7,10 @@ import time
 import copy
 
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 from fpdf import FPDF
+
+COLLATE = True
 
 def load_image(src, name):
     if not os.path.exists('img/'):
@@ -81,37 +84,15 @@ def load_search(params=[f"e:{setName}"]):
     params.append('unique:prints')
     nextPage = 1
     while nextPage > -1:
-        search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
+        search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "order": "usd", "dir": "desc", "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
         print(f"fetching {search.url}")
         search = search.json()
 
         if "data" not in search:
             break
         for card in search['data']:
-            if 'image_uris' in card:
-                if (card['name'] in result and int(re.findall(r'\d+', card['collector_number'])[0]) < result[card['name']][1]):
-                    continue
+            if 'image_uris' in card and card['name'] not in result:
                 result[card['name']] = (card['image_uris']['png'], int(re.findall(r'\d+', card['collector_number'])[0]))
-
-        if search['has_more']:
-            nextPage += 1
-        else:
-            nextPage = -1
-    
-    params.append('is:full')
-    nextPage = 1
-    while nextPage > -1:
-        search = requests.get('https://api.scryfall.com/cards/search', {"q": ' '.join(params), "page": nextPage}, headers={'User-agent': 'Mozilla/5.0'})
-        print(f"fetching {search.url}")
-        search = search.json()
-
-        if "data" not in search:
-            break
-
-        for card in search['data']:
-            if 'image_uris' in card:
-                print('replacing', card['name'])
-                result[card['name']] = (card['image_uris']['png'], card['collector_number'])
 
         if search['has_more']:
             nextPage += 1
@@ -125,26 +106,29 @@ if not os.path.exists('out/'):
     os.mkdir('out')
 
 if os.path.exists(f'out/{setName}.json'):
+    print(f"loading from cache")
     with open(f'out/{setName}.json', 'r') as file:
         library = json.load(file)
-    print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
 else:
-    library['r'] = load_search([f'e:{setName}', 'r>=r'])
+    print(f"loading from scryfall API")
+    library['mr'] = load_search([f'e:{setName}', 'r>r'])
+    library['r'] = load_search([f'e:{setName}', 'r:r'])
     library['u'] = load_search([f'e:{setName}', 'r:u'])
-    library['c'] = load_search([f'e:{setName}', 'r:c', '-t:basic'])
-    library['land'] = load_search([f'e:{setName}', 't:land', 't:basic'])
+    library['c'] = load_search([f'e:{setName}', 'r:c', '-t:land'])
+    library['land'] = load_search([f'e:{setName}', 't:land', "r:c"])
 
-    print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
     with open(f'out/{setName}.json', 'w+') as file:
         json.dump(library, file)
-    
-pdf = FPDF(unit="in", format='letter')
 
+print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
+
+sets = []
 # picking sets
 for s in range(count):
     if not os.path.exists('out/'):
         os.mkdir('out')
-    print("generating set", s)
+    
+    print('generating set', s)
 
     seed = time.time_ns() // 1_000_000
     random.seed(seed)
@@ -155,11 +139,16 @@ for s in range(count):
 
     # 1 land
     cards.append(library_copy['land'].pop(random.randint(0, len(library_copy['land'])-1)))
-    print(cards)
 
     # 10 commons
     for _ in range(10):
         cards.append(library_copy['c'].pop(random.randint(0, len(library_copy['c'])-1)))
+
+    # potential foil replacing a common
+    # if random.randint(0, x) == x:
+    #     cards.pop()
+    #     library_combined = [*library_copy['c'], *library_copy['u'], *library_copy['r'], *library_copy['mr']]
+    #     cards.append(library_combined.pop(random.randint(0, len(library_combined)-1)))
 
     # 3 uncommons
     for _ in range(3):
@@ -167,35 +156,44 @@ for s in range(count):
 
     # 1 rare/mythic rare
     for _ in range(1):
-        cards.append(library_copy['r'].pop(random.randint(0, len(library_copy['r'])-1)))
+        if random.randint(0, 7) == 7:
+            cards.append(library_copy['mr'].pop(random.randint(0, len(library_copy['mr'])-1)))
+        else:
+            cards.append(library_copy['r'].pop(random.randint(0, len(library_copy['r'])-1)))
     
-    random.shuffle(cards)
+    # random.shuffle(cards)
     
-    tokens = requests.get(f"https://scryfall.com/sets/T{setName}")
-    tokens_page = BeautifulSoup(tokens.content, "html.parser")
+    # 1 token
+    try:
+        tokens = requests.get(f"https://scryfall.com/sets/T{setName}")
+        tokens_page = BeautifulSoup(tokens.content, "html.parser")
 
-    tokens = tokens_page.select("img.card")
-    token = tokens.pop(random.randint(0, len(tokens)-1))
-    cards.append({"title": token.attrs['alt'], "src": token.attrs['src']})
-
+        tokens = tokens_page.select("img.card")
+        token = tokens.pop(random.randint(0, len(tokens)-1))
+        cards.append({"title": token.attrs['alt'], "src": token.attrs['src']})
+    except:
+        print("no tokens found :c")
+    
+    sets.append(cards)
     with open(f'out/set{s}.json', "w+") as file:
         json.dump({"seed": seed, "cards": cards}, file)
 
-    # pdf = FPDF(unit="in", format='letter')
+pages = []
+if COLLATE:
+    for i in range(16):
+        pages.append([set[i] for set in sets])
+else:
+    for set in sets:
+        for p in range(0, len(set), 9):
+            pages.append(set[p:p+9])
 
-    pdf.add_page()
-    for i in range(0,len(cards),2):
-        try:
-            pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
-        except:
-            print(cards[i]['title'])
     
+pdf = FPDF(unit="in", format='letter')
+for page in tqdm(pages):
     pdf.add_page()
-    for i in range(1,len(cards),2):
+    for i in range(len(page)):
         try:
-            pdf.image(load_image(cards[i]['src'], cards[i]['title']), **PAGE_POSITIONS[i//2])
+            pdf.image(load_image(page[i]['src'], page[i]['title']), **PAGE_POSITIONS[i])
         except:
-            print(cards[i]['title'])
-    
-    # pdf.output(f'out/set{s}.pdf')
+            print("failed to print", cards[i]['title'])
 pdf.output('out/sets.pdf')
