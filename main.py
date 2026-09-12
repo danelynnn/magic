@@ -37,11 +37,19 @@ PAGE_POSITIONS = [{"x": 0.5295, "y": 0.3031, "w": 2.4803, "h": 3.4646},
 setName = input('input set tag (MSH): ')
 if not setName:
     setName = 'MSH'
+
 count = input('how many sets (3): ')
 if not count:
     count = 3
 else:
     count = int(count)
+    
+seed = input('seed (-1): ')
+if not seed:
+    seed = -1
+else:
+    seed = int(seed)
+
 library = {"r": [], "u": [], "c": [], "land": []}
 
 # from wizards.com
@@ -91,8 +99,12 @@ def load_search(params=[f"e:{setName}"]):
         if "data" not in search:
             break
         for card in search['data']:
-            if 'image_uris' in card and card['name'] not in result:
-                result[card['name']] = (card['image_uris']['png'], int(re.findall(r'\d+', card['collector_number'])[0]))
+            if card['name'] not in result:
+                if 'image_uris' in card:
+                    result[card['name']] = (card['image_uris']['png'], 'back', "https://cards.scryfall.io/back.png")
+                elif 'card_faces' in card:
+                    faces = card['card_faces']
+                    result[card['name']] = (faces[0]['image_uris']['png'], f'{card["name"]}_back', faces[1]['image_uris']['png'])
 
         if search['has_more']:
             nextPage += 1
@@ -100,7 +112,7 @@ def load_search(params=[f"e:{setName}"]):
             nextPage = -1
 
     print(f"{len(result)} cards found")
-    return [{"title": key, "src": value[0]} for key, value in result.items()]
+    return [{"title": key, "title2": value[1], "src": value[0], "src2": value[2]} for key, value in result.items()]
 
 if not os.path.exists('out/'):
     os.mkdir('out')
@@ -120,7 +132,18 @@ else:
     with open(f'out/{setName}.json', 'w+') as file:
         json.dump(library, file)
 
-print(f"loaded {len(library['r'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
+print(f"loaded {len(library['r']) + len(library['mr'])} rares+, {len(library['u'])} uncommons, and {len(library['c'])} commons (+{len(library['land'])} lands)")
+
+if seed == -1:
+    seed = time.time_ns() % (2 ** 32)
+
+print(f'generating sets with seed {seed}')
+random.seed(seed)
+
+def randint(start, stop):
+    number = random.randint(start, stop-1)
+    # print(f"randint {start}-{stop}: {number}")
+    return number
 
 sets = []
 # picking sets
@@ -130,36 +153,33 @@ for s in range(count):
     
     print('generating set', s)
 
-    seed = time.time_ns() // 1_000_000
-    random.seed(seed)
-
     cards = []
 
     library_copy = copy.deepcopy(library)
 
     # 1 land
-    cards.append(library_copy['land'].pop(random.randint(0, len(library_copy['land'])-1)))
+    cards.append(library_copy['land'].pop(randint(0, len(library_copy['land']))))
 
     # 10 commons
     for _ in range(10):
-        cards.append(library_copy['c'].pop(random.randint(0, len(library_copy['c'])-1)))
+        cards.append(library_copy['c'].pop(randint(0, len(library_copy['c']))))
 
     # potential foil replacing a common
-    # if random.randint(0, x) == x:
+    # if randint(0, x+1) == x:
     #     cards.pop()
     #     library_combined = [*library_copy['c'], *library_copy['u'], *library_copy['r'], *library_copy['mr']]
-    #     cards.append(library_combined.pop(random.randint(0, len(library_combined)-1)))
+    #     cards.append(library_combined.pop(randint(0, len(library_combined))))
 
     # 3 uncommons
     for _ in range(3):
-        cards.append(library_copy['u'].pop(random.randint(0, len(library_copy['u'])-1)))
+        cards.append(library_copy['u'].pop(randint(0, len(library_copy['u']))))
 
     # 1 rare/mythic rare
     for _ in range(1):
-        if random.randint(0, 7) == 7:
-            cards.append(library_copy['mr'].pop(random.randint(0, len(library_copy['mr'])-1)))
+        if randint(0, 8) == 7:
+            cards.append(library_copy['mr'].pop(randint(0, len(library_copy['mr']))))
         else:
-            cards.append(library_copy['r'].pop(random.randint(0, len(library_copy['r'])-1)))
+            cards.append(library_copy['r'].pop(randint(0, len(library_copy['r']))))
     
     # random.shuffle(cards)
     
@@ -169,10 +189,12 @@ for s in range(count):
         tokens_page = BeautifulSoup(tokens.content, "html.parser")
 
         tokens = tokens_page.select("img.card")
-        token = tokens.pop(random.randint(0, len(tokens)-1))
-        cards.append({"title": token.attrs['alt'], "src": token.attrs['src']})
+        token = tokens.pop(randint(0, len(tokens)))
+        cards.append({"title": token.attrs['alt'], "src": token.attrs['src'], 'title2': 'back', 'src2': "https://cards.scryfall.io/back.png"})
     except:
         print("no tokens found :c")
+
+    cards.append(seed) # [-1] for seed
     
     sets.append(cards)
     with open(f'out/set{s}.json', "w+") as file:
@@ -189,11 +211,26 @@ else:
 
     
 pdf = FPDF(unit="in", format='letter')
+pdf.set_margins(0, 0, 0)
+pdf.set_font('Courier')
+counter = 0
 for page in tqdm(pages):
     pdf.add_page()
+    pdf.text(0.2, 0.2, str(seed))
     for i in range(len(page)):
         try:
             pdf.image(load_image(page[i]['src'], page[i]['title']), **PAGE_POSITIONS[i])
         except:
             print("failed to print", cards[i]['title'])
+    pdf.add_page()
+    for i in range(len(page)):
+        px, py = (i % 3, i // 3)
+        px = 2 - px
+        j = py * 3 + px
+
+        try:
+            pdf.image(load_image(page[i]['src2'], page[i]["title2"]), **PAGE_POSITIONS[j])
+        except Exception as e:
+            print("failed to print", cards[i]['title'])
+            print(e)
 pdf.output('out/sets.pdf')
